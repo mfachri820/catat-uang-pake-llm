@@ -120,6 +120,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** One-off message for a snackbar, e.g. "Imported 34 transactions". */
     val toast = MutableStateFlow<String?>(null)
 
+    // ------------------------------------------------------------ multi-select
+
+    /** Ids of transactions selected on the home list (long-press to start). */
+    val selection = MutableStateFlow<Set<Long>>(emptySet())
+    /** The last batch deleted, kept so the snackbar can undo it. */
+    val lastDeleted = MutableStateFlow<List<Txn>?>(null)
+
+    fun toggleSelect(id: Long) = selection.update { if (id in it) it - id else it + id }
+
+    fun selectAll(ids: Collection<Long>) = selection.update { it + ids }
+
+    fun clearSelection() { selection.value = emptySet() }
+
+    fun deleteSelected() = viewModelScope.launch {
+        val ids = selection.value
+        if (ids.isEmpty()) return@launch
+        selection.value = emptySet()
+        lastDeleted.value = repo.deleteMany(ids)
+    }
+
+    fun undoDelete() = viewModelScope.launch {
+        lastDeleted.value?.let { repo.restore(it) }
+        lastDeleted.value = null
+    }
+
     // ------------------------------------------------------------ manual entry
 
     fun newEntry(type: String = TxnType.EXPENSE) {

@@ -109,4 +109,10 @@ interface TxnDao {
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("SELECT * FROM transactions WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<Txn>
+
+    @Query("DELETE FROM transactions WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 }

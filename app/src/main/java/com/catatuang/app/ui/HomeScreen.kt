@@ -1,7 +1,24 @@
 package com.catatuang.app.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -75,9 +92,47 @@ fun HomeScreen(vm: MainViewModel, onScanReceipt: () -> Unit, onImportStatement: 
         toast?.let { snackbar.showSnackbar(it); vm.toast.value = null }
     }
 
+    // Multi-select: long-press a row to start, tap rows to add/remove, delete from the top bar.
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val selecting = selection.isNotEmpty()
+    var confirmDelete by remember { mutableStateOf(false) }
+    LaunchedEffect(offset, filter) { vm.clearSelection() }
+    BackHandler(enabled = selecting) { vm.clearSelection() }
+    val lastDeleted by vm.lastDeleted.collectAsStateWithLifecycle()
+    LaunchedEffect(lastDeleted) {
+        val batch = lastDeleted ?: return@LaunchedEffect
+        val result = snackbar.showSnackbar(
+            "Deleted ${batch.size} transaction${if (batch.size == 1) "" else "s"}",
+            actionLabel = "Undo", duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) vm.undoDelete() else vm.lastDeleted.value = null
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (selecting) {
+                val picked = txns.filter { it.id in selection }
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = vm::clearSelection) { Icon(Icons.Filled.Close, "Cancel selection") }
+                    },
+                    title = {
+                        Column {
+                            Text("${selection.size} selected", fontWeight = FontWeight.SemiBold)
+                            Text(rupiah(picked.sumOf { it.amount }), style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { vm.selectAll(shown.map { it.id }) }) {
+                            Icon(Icons.Filled.SelectAll, contentDescription = "Select all shown")
+                        }
+                        IconButton(onClick = { confirmDelete = true }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = "Delete selected")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                )
+            } else TopAppBar(
                 title = { Text("Catat Uang", fontWeight = FontWeight.SemiBold) },
                 actions = {
                     IconButton(onClick = onImportStatement) {
@@ -94,7 +149,7 @@ fun HomeScreen(vm: MainViewModel, onScanReceipt: () -> Unit, onImportStatement: 
         },
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (!selecting) Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FloatingActionButton(
                     onClick = { vm.newEntry(if (filter == null) TxnType.EXPENSE else filter!!) },
                     containerColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -148,9 +203,30 @@ fun HomeScreen(vm: MainViewModel, onScanReceipt: () -> Unit, onImportStatement: 
                         if (out > 0) Text("-" + rupiah(out), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(list, key = { it.id }) { TxnRow(it, onClick = { vm.edit(it.id) }) }
+                items(list, key = { it.id }) { t ->
+                    TxnRow(
+                        t,
+                        selected = t.id in selection,
+                        onClick = { if (selecting) vm.toggleSelect(t.id) else vm.edit(t.id) },
+                        onLongClick = { vm.toggleSelect(t.id) },
+                    )
+                }
             }
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete ${selection.size} transaction${if (selection.size == 1) "" else "s"}?") },
+            text = { Text("You can undo this right after.") },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; vm.deleteSelected() }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 }
 
@@ -219,14 +295,25 @@ private fun Stat(label: String, value: String, color: androidx.compose.ui.graphi
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TxnRow(t: TxnWithCategory, onClick: () -> Unit) {
+fun TxnRow(t: TxnWithCategory, onClick: () -> Unit, selected: Boolean = false, onLongClick: (() -> Unit)? = null) {
     val dark = isSystemInDarkTheme()
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 4.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        CategoryBadge(t.categoryIcon, t.type)
+        if (selected) {
+            Box(
+                Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Filled.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.onPrimary) }
+        } else {
+            CategoryBadge(t.categoryIcon, t.type)
+        }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(t.counterparty.ifBlank { t.categoryName ?: kindLabel(t.type) }, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

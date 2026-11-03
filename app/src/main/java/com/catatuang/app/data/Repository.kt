@@ -27,6 +27,20 @@ class Repository(private val context: Context, db: AppDatabase) {
     suspend fun ensureCategory(name: String, icon: String, hint: String, kind: String): Long =
         categories.byName(name)?.id ?: categories.insert(Category(name = name, icon = icon, hint = hint, kind = kind))
 
+    /** Deletes several transactions and returns them, so the caller can offer undo. */
+    suspend fun deleteMany(ids: Collection<Long>): List<Txn> {
+        val list = txns.getByIds(ids.toList())
+        txns.deleteByIds(ids.toList())
+        refreshWidget()
+        return list
+    }
+
+    /** Puts deleted transactions back with their original ids. */
+    suspend fun restore(list: List<Txn>) {
+        txns.insertAll(list)
+        refreshWidget()
+    }
+
     suspend fun delete(id: Long) {
         txns.delete(id)
         refreshWidget()
