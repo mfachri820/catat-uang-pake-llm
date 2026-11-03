@@ -23,7 +23,7 @@ download `catat-uang.apk` and open it (allow "install unknown apps" for your bro
 ## Using it
 
 1. **Settings** → paste an OpenRouter key from <https://openrouter.ai/keys>, optionally set a monthly budget.
-2. In BRImo, after a transfer, tap **Bagikan / Share** on the receipt and pick **Catat pengeluaran**.
+2. In BRImo, after a transfer, tap **Bagikan / Share** on the receipt and pick **Catat Uang** (it sits next to WhatsApp etc.; long-press it to pin it to the top). Images, PDFs and text receipts all work.
    You can also tap **Scan receipt** in the app and pick a saved screenshot.
 3. Check the pre-filled form and tap **Save**.
 4. Long-press your home screen → Widgets → **Catat Uang**.

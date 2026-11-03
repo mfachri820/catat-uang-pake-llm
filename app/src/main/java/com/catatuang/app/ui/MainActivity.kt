@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handleIntent(intent)
+        ShareShortcut.publish(this)
 
         setContent {
             CatatUangTheme {
@@ -48,21 +49,38 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
     }
 
+    /** Anything shared to us from the share sheet: an image, a PDF, a few images, or plain text. */
     private fun handleIntent(intent: Intent?) {
-        when {
-            intent?.action == Intent.ACTION_SEND && intent.type?.startsWith("image/") == true -> {
-                sharedImage(intent)?.let(vm::importReceipt)
+        intent ?: return
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                val stream = sharedStream(intent)
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                when {
+                    stream != null -> vm.importReceipt(stream, intent.type?.takeUnless { it.contains('*') })
+                    !text.isNullOrBlank() -> vm.importReceiptText(text)
+                }
             }
-            intent?.action == ACTION_ADD -> vm.newExpense()
+            // Some apps send the receipt plus a logo/banner; the first image is the receipt.
+            Intent.ACTION_SEND_MULTIPLE -> sharedStreams(intent).firstOrNull()?.let { vm.importReceipt(it) }
+            ACTION_ADD -> vm.newExpense()
         }
     }
 
-    private fun sharedImage(intent: Intent): Uri? =
+    private fun sharedStream(intent: Intent): Uri? =
         if (Build.VERSION.SDK_INT >= 33) {
             intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         } else {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+
+    private fun sharedStreams(intent: Intent): List<Uri> =
+        if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
         }
 
     companion object {

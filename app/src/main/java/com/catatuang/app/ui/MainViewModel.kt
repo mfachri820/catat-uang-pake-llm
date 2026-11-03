@@ -131,32 +131,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------ receipt import
 
     /** Screenshot shared from BRImo (or picked from the gallery) → pre-filled review form. */
-    fun importReceipt(uri: Uri) {
+    fun importReceipt(uri: Uri, mimeType: String? = null) {
         editor.value = EditorState(fromReceipt = true, busy = "Reading receipt…")
         screen.value = Screen.Editor
         viewModelScope.launch {
-            val text = runCatching { ReceiptOcr.read(getApplication(), uri) }.getOrElse { e ->
-                editor.update { it.copy(busy = null, error = "Couldn't read the image: ${e.message}") }
+            val text = runCatching { ReceiptOcr.read(getApplication(), uri, mimeType) }.getOrElse { e ->
+                editor.update { it.copy(busy = null, error = "Couldn't read the receipt: ${e.message}") }
                 return@launch
             }
-            val p = ReceiptParser.parse(text)
-            val dup = p.reference?.let { repo.txns.findByReference(it) }
-            editor.update {
-                it.copy(
-                    amountText = p.amount?.toString().orEmpty(),
-                    counterparty = p.counterparty.orEmpty(),
-                    note = p.note.orEmpty(),
-                    timestamp = p.timestamp ?: System.currentTimeMillis(),
-                    source = p.source,
-                    reference = p.reference,
-                    rawText = text,
-                    duplicateWarning = dup?.let { "This receipt (ref ${p.reference}) is already saved." },
-                    error = if (p.amount == null) "Couldn't find the amount — please type it in." else null,
-                    busy = "Choosing a category…",
-                )
-            }
-            decideCategory(p.counterparty, p.amount, p.note, p.kind, p.source, text)
+            fillFromText(text)
         }
+    }
+
+    /** Some apps share the receipt as text instead of an image. */
+    fun importReceiptText(text: String) {
+        editor.value = EditorState(fromReceipt = true, busy = "Reading receipt…")
+        screen.value = Screen.Editor
+        viewModelScope.launch { fillFromText(text) }
+    }
+
+    private suspend fun fillFromText(text: String) {
+        val p = ReceiptParser.parse(text)
+        val dup = p.reference?.let { repo.txns.findByReference(it) }
+        editor.update {
+            it.copy(
+                amountText = p.amount?.toString().orEmpty(),
+                counterparty = p.counterparty.orEmpty(),
+                note = p.note.orEmpty(),
+                timestamp = p.timestamp ?: System.currentTimeMillis(),
+                source = p.source,
+                reference = p.reference,
+                rawText = text,
+                duplicateWarning = dup?.let { "This receipt (ref ${p.reference}) is already saved." },
+                error = if (p.amount == null) "Couldn't find the amount — please type it in." else null,
+                busy = "Choosing a category…",
+            )
+        }
+        decideCategory(p.counterparty, p.amount, p.note, p.kind, p.source, text)
     }
 
     private suspend fun decideCategory(
