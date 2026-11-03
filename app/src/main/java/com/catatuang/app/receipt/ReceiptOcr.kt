@@ -43,12 +43,26 @@ object ReceiptOcr {
         return if (boxes.isNotEmpty()) ReceiptParser.joinRows(boxes) else result.text
     }
 
-    /** Some banks share the receipt as a PDF; render page 1 at ~2x so small text stays readable. */
-    private suspend fun renderFirstPdfPage(context: Context, uri: Uri): Bitmap = withContext(Dispatchers.IO) {
+    /** OCR every page of a scanned PDF (e.g. a photographed rekening koran), joined in order. */
+    suspend fun readPdfPages(context: Context, uri: Uri, maxPages: Int): String {
+        val count = withContext(Dispatchers.IO) {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { PdfRenderer(it).use { pdf -> pdf.pageCount } } ?: 0
+        }
+        val pages = mutableListOf<String>()
+        for (index in 0 until minOf(count, maxPages)) {
+            pages += recognize(InputImage.fromBitmap(renderPdfPage(context, uri, index), 0))
+        }
+        return pages.joinToString("\n")
+    }
+
+    private suspend fun renderFirstPdfPage(context: Context, uri: Uri): Bitmap = renderPdfPage(context, uri, 0)
+
+    /** Render a PDF page at ~2x so small text stays readable for OCR. */
+    private suspend fun renderPdfPage(context: Context, uri: Uri, index: Int): Bitmap = withContext(Dispatchers.IO) {
         val fd = context.contentResolver.openFileDescriptor(uri, "r") ?: error("Can't open the PDF")
         fd.use {
             PdfRenderer(it).use { pdf ->
-                pdf.openPage(0).use { page ->
+                pdf.openPage(index).use { page ->
                     val scale = 2
                     val bmp = Bitmap.createBitmap(page.width * scale, page.height * scale, Bitmap.Config.ARGB_8888)
                     bmp.eraseColor(Color.WHITE)

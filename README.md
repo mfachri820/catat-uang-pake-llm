@@ -9,6 +9,10 @@ An Android expense tracker that fills itself in from your transfer receipts.
   that category instead and skips the API call.
 - **You always check before saving.** Low-confidence picks are flagged, and duplicates (same reference
   number) are caught.
+- **Import a whole month from your rekening koran** (bank statement PDF, e.g. BRI e-statement). Outgoing
+  transactions are listed for review; cash withdrawals, bank fees and e-wallet top-ups are categorised
+  automatically, repeat payees reuse their old category, and Jev picks the rest in batches. Payments you
+  already recorded from receipts are spotted and left unticked. Password-protected PDFs are supported.
 - **Home screen widget** with this month's total, budget bar, today's spend, top categories and a quick "+" button.
 
 Everything is stored on the phone (Room/SQLite). The only thing that leaves the device is the receipt summary
@@ -26,7 +30,9 @@ download `catat-uang.apk` and open it (allow "install unknown apps" for your bro
 2. In BRImo, after a transfer, tap **Bagikan / Share** on the receipt and pick **Catat Uang** (it sits next to WhatsApp etc.; long-press it to pin it to the top). Images, PDFs and text receipts all work.
    You can also tap **Scan receipt** in the app and pick a saved screenshot.
 3. Check the pre-filled form and tap **Save**.
-4. Long-press your home screen → Widgets → **Catat Uang**.
+4. For a monthly catch-up, tap the upload icon on the home screen and pick your rekening koran PDF
+   (or share the PDF to Catat Uang). Check the list and tap **Import**.
+5. Long-press your home screen → Widgets → **Catat Uang**.
 
 Edit category descriptions under **Categories**: that text is exactly what Jev reads, so listing the merchants
 you actually use (e.g. "Kopi Kenangan, warung, GoFood") makes it more accurate.
@@ -56,6 +62,8 @@ BRImo share ─► MainActivity (ACTION_SEND image/*)
 |---|---|
 | `receipt/ReceiptParser.kt` | Pure-Kotlin parser for Indonesian receipts (unit tested) |
 | `receipt/ReceiptOcr.kt` | ML Kit text recognition + row joining |
+| `statement/StatementParser.kt` | Bank statement parser; uses the running balance to tell debits from credits (unit tested) |
+| `statement/StatementImporter.kt` | Statement flow: duplicates, rules → history → Jev batch categorising |
 | `ai/JevCategorizer.kt` | OpenRouter Decisions API client |
 | `widget/SpendingWidget.kt` | Glance home screen widget |
 | `data/` | Room entities, DAOs, default categories, settings |

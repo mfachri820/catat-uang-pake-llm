@@ -86,6 +86,9 @@ dependencies {
     // On-device OCR for receipt screenshots (bundled model, works offline)
     implementation("com.google.mlkit:text-recognition:16.0.1")
 
+    // Text extraction from bank statement PDFs (handles password-protected e-statements)
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+
     // HTTP for OpenRouter
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

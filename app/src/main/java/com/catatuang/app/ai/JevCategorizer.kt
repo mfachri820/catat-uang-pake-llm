@@ -79,33 +79,102 @@ class JevCategorizer(private val settings: Settings) {
             )
         }
 
+        val json = post(body)
+        val cost = json.optJSONObject("usage")?.optDouble("cost")?.takeUnless { it.isNaN() }
+        decisionFrom(json.getJSONObject("answers").getJSONObject("category"), categories, cost)
+            ?: throw JevException("Jev picked an unknown category")
+    }
+
+    data class BatchItem(
+        val key: String,
+        val description: String,
+        val amount: Long,
+        val counterparty: String?,
+        val date: String,
+    )
+
+    /**
+     * Categorises many statement rows. Each row becomes its own `choice` question in a request,
+     * [chunk] rows per request, so a month of transactions takes a handful of calls.
+     * [onProgress] gets the number of rows done so far.
+     */
+    suspend fun categorizeBatch(
+        categories: List<Category>,
+        items: List<BatchItem>,
+        chunk: Int = 8,
+        onProgress: (Int) -> Unit = {},
+    ): Map<String, CategoryDecision> = withContext(Dispatchers.IO) {
+        if (!isConfigured) throw JevException("Add your OpenRouter API key in Settings first.")
+        val criteria = JSONObject()
+        categories.forEach { criteria.put(it.name, it.hint.ifBlank { it.name }) }
+        val out = mutableMapOf<String, CategoryDecision>()
+        var done = 0
+        for (group in items.chunked(chunk)) {
+            val txns = JSONObject()
+            val questions = JSONObject()
+            group.forEach { item ->
+                txns.put(item.key, JSONObject().apply {
+                    put("bank_description", item.description)
+                    put("amount_idr", item.amount)
+                    put("date", item.date)
+                    item.counterparty?.let { put("probably_paid_to", it) }
+                })
+                questions.put(
+                    item.key,
+                    JSONObject()
+                        .put("type", "choice")
+                        .put("instructions", "Which spending category fits transaction ${item.key} in transactions.${item.key}?")
+                        .put("criteria", criteria),
+                )
+            }
+            val state = JSONObject()
+                .put(
+                    "task",
+                    "Money-out lines from an Indonesian bank statement (rekening koran), e.g. BRI. " +
+                        "Descriptions use bank codes: NBMB/ESB/BI-FAST = transfer to the person after 'TO'; " +
+                        "QRIS = paying a shop by QR; BRIVA = virtual account bill (e-commerce, PLN, BPJS, school). " +
+                        "Decide the spending category of each transaction.",
+                )
+                .put("transactions", txns)
+            val json = post(JSONObject().put("model", settings.jevModel).put("state", state).put("questions", questions))
+            val answers = json.getJSONObject("answers")
+            group.forEach { item ->
+                answers.optJSONObject(item.key)?.let { decisionFrom(it, categories, null) }?.let { out[item.key] = it }
+            }
+            done += group.size
+            onProgress(done)
+        }
+        out
+    }
+
+    private fun decisionFrom(answer: JSONObject, categories: List<Category>, cost: Double?): CategoryDecision? {
+        val chosen = answer.optString("choice")
+        val probs = answer.optJSONObject("probabilities")?.let { p ->
+            p.keys().asSequence().associateWith { p.optDouble(it, 0.0) }
+        }.orEmpty()
+        val category = categories.firstOrNull { it.name == chosen } ?: return null
+        return CategoryDecision(
+            category = category,
+            confidence = answer.optDouble("confidence", probs[chosen] ?: 0.0),
+            probabilities = probs,
+            costUsd = cost,
+        )
+    }
+
+    private fun post(body: JSONObject): JSONObject {
         val request = Request.Builder()
             .url(ENDPOINT)
             .header("Authorization", "Bearer ${settings.openRouterKey}")
             .header("X-Title", "Catat Uang")
             .post(body.toString().toRequestBody("application/json".toMediaType()))
             .build()
-
         http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 val msg = runCatching { JSONObject(text).getJSONObject("error").getString("message") }.getOrNull()
                 throw JevException("Jev request failed (${response.code}): ${msg ?: text.take(200)}")
             }
-            val json = JSONObject(text)
-            val answer = json.getJSONObject("answers").getJSONObject("category")
-            val chosen = answer.getString("choice")
-            val probs = answer.optJSONObject("probabilities")?.let { p ->
-                p.keys().asSequence().associateWith { p.optDouble(it, 0.0) }
-            }.orEmpty()
-            val category = categories.firstOrNull { it.name == chosen }
-                ?: throw JevException("Jev picked an unknown category: $chosen")
-            CategoryDecision(
-                category = category,
-                confidence = answer.optDouble("confidence", probs[chosen] ?: 0.0),
-                probabilities = probs,
-                costUsd = json.optJSONObject("usage")?.optDouble("cost")?.takeUnless { it.isNaN() },
-            )
+            return JSONObject(text)
         }
     }
 

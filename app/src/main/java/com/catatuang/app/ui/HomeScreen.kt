@@ -25,6 +25,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.UploadFile
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -53,19 +57,27 @@ import com.catatuang.app.data.monthRange
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(vm: MainViewModel, onScanReceipt: () -> Unit) {
+fun HomeScreen(vm: MainViewModel, onScanReceipt: () -> Unit, onImportStatement: () -> Unit) {
     val txns by vm.monthTxns.collectAsStateWithLifecycle()
     val totals by vm.monthTotals.collectAsStateWithLifecycle()
     val offset by vm.monthOffset.collectAsStateWithLifecycle()
     val monthLabel = remember(offset) { formatMonth(monthRange(offset = offset).first) }
     val total = totals.sumOf { it.total }
     val byDay = remember(txns) { txns.groupBy { formatDay(it.timestamp) } }
+    val toast by vm.toast.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(toast) {
+        toast?.let { snackbar.showSnackbar(it); vm.toast.value = null }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Catat Uang", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    IconButton(onClick = onImportStatement) {
+                        Icon(Icons.Outlined.UploadFile, contentDescription = "Import rekening koran")
+                    }
                     IconButton(onClick = { vm.navigate(Screen.Categories) }) {
                         Icon(Icons.Outlined.Category, contentDescription = "Categories")
                     }
@@ -75,6 +87,7 @@ fun HomeScreen(vm: MainViewModel, onScanReceipt: () -> Unit) {
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 FloatingActionButton(
@@ -208,7 +221,8 @@ private fun EmptyState() {
         Spacer(Modifier.height(8.dp))
         Text(
             "After a transfer in BRImo, tap Share on the receipt and choose Catat Uang. " +
-                "The amount, recipient and date are filled in for you, and Jev picks the category.",
+                "The amount, recipient and date are filled in for you, and Jev picks the category.\n\n" +
+                "Or catch up on a whole month: tap the upload icon at the top and pick your rekening koran PDF.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,

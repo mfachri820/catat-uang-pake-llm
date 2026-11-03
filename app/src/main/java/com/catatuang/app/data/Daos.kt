@@ -18,6 +18,9 @@ interface CategoryDao {
     @Query("SELECT COUNT(*) FROM categories")
     suspend fun count(): Int
 
+    @Query("SELECT * FROM categories WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    suspend fun byName(name: String): Category?
+
     @Insert
     suspend fun insert(category: Category): Long
 
@@ -80,6 +83,13 @@ interface TxnDao {
         """,
     )
     suspend fun lastCategoryFor(counterparty: String): Long?
+
+    /** An existing expense with the same amount around the same time — likely the same payment. */
+    @Query("SELECT * FROM transactions WHERE amount = :amount AND timestamp BETWEEN :from AND :to LIMIT 1")
+    suspend fun findSimilar(amount: Long, from: Long, to: Long): Txn?
+
+    @Insert
+    suspend fun insertAll(txns: List<Txn>)
 
     @Insert
     suspend fun insert(txn: Txn): Long

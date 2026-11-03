@@ -18,6 +18,15 @@ class Repository(private val context: Context, db: AppDatabase) {
         return id
     }
 
+    suspend fun saveAll(list: List<Txn>) {
+        txns.insertAll(list)
+        refreshWidget()
+    }
+
+    /** Find a category by name, creating it if needed. Returns its id. */
+    suspend fun ensureCategory(name: String, emoji: String, hint: String): Long =
+        categories.byName(name)?.id ?: categories.insert(Category(name = name, emoji = emoji, hint = hint))
+
     suspend fun delete(id: Long) {
         txns.delete(id)
         refreshWidget()

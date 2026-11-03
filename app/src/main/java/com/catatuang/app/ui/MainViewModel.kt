@@ -12,6 +12,7 @@ import com.catatuang.app.data.TxnWithCategory
 import com.catatuang.app.data.monthRange
 import com.catatuang.app.receipt.ReceiptOcr
 import com.catatuang.app.receipt.ReceiptParser
+import com.catatuang.app.statement.StatementImporter
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +27,7 @@ sealed interface Screen {
     data object Editor : Screen
     data object Categories : Screen
     data object Settings : Screen
+    data object StatementImport : Screen
 }
 
 /** State of the add / edit / review-import form. */
@@ -73,6 +75,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val editor = MutableStateFlow(EditorState())
+
+    val statement = StatementImporter(app, repo, jev, viewModelScope)
+
+    /** One-off message for a snackbar, e.g. "Imported 34 expenses". */
+    val toast = MutableStateFlow<String?>(null)
 
     fun navigate(to: Screen) { screen.value = to }
 
@@ -223,6 +230,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             e.counterparty.ifBlank { null }, e.amountText.filter { it.isDigit() }.toLongOrNull(),
             e.note.ifBlank { null }, null, e.source, e.rawText,
         )
+    }
+
+    // ------------------------------------------------------------ rekening koran
+
+    fun importStatement(uri: Uri) {
+        statement.start(uri)
+        screen.value = Screen.StatementImport
+    }
+
+    /** A PDF from the share sheet: a statement if it has many dated rows, otherwise a receipt. */
+    fun importPdf(uri: Uri) {
+        editor.value = EditorState(fromReceipt = true, busy = "Reading file…")
+        screen.value = Screen.Editor
+        viewModelScope.launch {
+            if (statement.tryStatement(uri)) screen.value = Screen.StatementImport
+            else importReceipt(uri, "application/pdf")
+        }
+    }
+
+    fun confirmStatement() = viewModelScope.launch {
+        val n = statement.confirm()
+        toast.value = "Imported $n expenses"
+        screen.value = Screen.Home
     }
 
     // ------------------------------------------------------------ categories & settings

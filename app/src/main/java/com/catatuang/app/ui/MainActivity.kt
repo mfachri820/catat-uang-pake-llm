@@ -30,12 +30,20 @@ class MainActivity : ComponentActivity() {
                 val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
                     uri?.let(vm::importReceipt)
                 }
+                val pickStatement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    uri?.let(vm::importStatement)
+                }
                 BackHandler(enabled = screen != Screen.Home) { vm.back() }
 
                 when (screen) {
-                    Screen.Home -> HomeScreen(vm, onScanReceipt = {
-                        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    })
+                    Screen.Home -> HomeScreen(
+                        vm,
+                        onScanReceipt = {
+                            pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        },
+                        onImportStatement = { pickStatement.launch(arrayOf("application/pdf")) },
+                    )
+                    Screen.StatementImport -> StatementImportScreen(vm)
                     Screen.Editor -> EditorScreen(vm)
                     Screen.Categories -> CategoriesScreen(vm)
                     Screen.Settings -> SettingsScreen(vm)
@@ -57,6 +65,7 @@ class MainActivity : ComponentActivity() {
                 val stream = sharedStream(intent)
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                 when {
+                    stream != null && isPdf(intent, stream) -> vm.importPdf(stream)
                     stream != null -> vm.importReceipt(stream, intent.type?.takeUnless { it.contains('*') })
                     !text.isNullOrBlank() -> vm.importReceiptText(text)
                 }
@@ -66,6 +75,9 @@ class MainActivity : ComponentActivity() {
             ACTION_ADD -> vm.newExpense()
         }
     }
+
+    private fun isPdf(intent: Intent, uri: Uri): Boolean =
+        intent.type == "application/pdf" || contentResolver.getType(uri) == "application/pdf"
 
     private fun sharedStream(intent: Intent): Uri? =
         if (Build.VERSION.SDK_INT >= 33) {
