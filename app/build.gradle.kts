@@ -15,8 +15,10 @@ android {
         applicationId = "com.catatuang.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // Each CI build gets a higher version so Android always treats it as an update.
+        val build = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = build
+        versionName = "0.2.$build"
     }
 
     // CI signs with a stable key (from GitHub secrets) so new builds install over old ones
