@@ -1,6 +1,7 @@
 # Catat Uang
 
-An Android expense tracker that fills itself in from your transfer receipts.
+An Android money tracker (spending, income and investing) that fills itself in from your transfer receipts
+and bank statements.
 
 - **Share a receipt from BRImo** (or DANA, GoPay, OVO, Livin', BCA, any QRIS receipt) → Catat Uang reads the
   amount, recipient, date, note and reference number with on-device OCR.
@@ -13,7 +14,13 @@ An Android expense tracker that fills itself in from your transfer receipts.
   transactions are listed for review; cash withdrawals, bank fees and e-wallet top-ups are categorised
   automatically, repeat payees reuse their old category, and Jev picks the rest in batches. Payments you
   already recorded from receipts are spotted and left unticked. Password-protected PDFs are supported.
-- **Home screen widget** with this month's total, budget bar, today's spend, top categories and a quick "+" button.
+- **Spending, income and investing** are tracked separately: money moved into Bibit, Stockbit, Pintu,
+  Pegadaian emas and similar counts as investing, not spending. Incoming transfers, salary and interest are income.
+- **Details dashboard**: cash flow (in vs. spent vs. invested, what's left, vs. last month), a daily
+  spending chart, category breakdown with drill-down, and top recipients/senders.
+- **Own icon set and logo**, drawn as vector code (`tools/make_icons.py` regenerates them).
+- **Home screen widget** with this month's spending, budget bar and daily allowance, money in, invested, top categories and a quick "+".
+  Tap it to open the details dashboard.
 
 Everything is stored on the phone (Room/SQLite). The only thing that leaves the device is the receipt summary
 sent to OpenRouter for categorising, and only when you've added a key.

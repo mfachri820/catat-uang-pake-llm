@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onImportStatement = { pickStatement.launch(arrayOf("application/pdf")) },
                     )
+                    Screen.Details -> DetailsScreen(vm)
                     Screen.StatementImport -> StatementImportScreen(vm)
                     Screen.Editor -> EditorScreen(vm)
                     Screen.Categories -> CategoriesScreen(vm)
@@ -72,7 +73,8 @@ class MainActivity : ComponentActivity() {
             }
             // Some apps send the receipt plus a logo/banner; the first image is the receipt.
             Intent.ACTION_SEND_MULTIPLE -> sharedStreams(intent).firstOrNull()?.let { vm.importReceipt(it) }
-            ACTION_ADD -> vm.newExpense()
+            ACTION_ADD -> { vm.openFresh(Screen.Home); vm.newEntry() }
+            ACTION_DETAILS -> { vm.monthOffset.value = 0; vm.openFresh(Screen.Details) }
         }
     }
 
@@ -98,5 +100,6 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_OPEN = "com.catatuang.app.OPEN"
         const val ACTION_ADD = "com.catatuang.app.ADD_EXPENSE"
+        const val ACTION_DETAILS = "com.catatuang.app.DETAILS"
     }
 }

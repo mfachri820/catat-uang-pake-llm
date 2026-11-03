@@ -3,8 +3,10 @@ package com.catatuang.app.statement
 import android.content.Context
 import android.net.Uri
 import com.catatuang.app.ai.JevCategorizer
+import com.catatuang.app.data.Category
 import com.catatuang.app.data.Repository
 import com.catatuang.app.data.Txn
+import com.catatuang.app.data.TxnType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -19,6 +21,8 @@ data class ImportRow(
     val description: String,
     val counterparty: String,
     val amount: Long,
+    /** Money in (kredit) rather than money out (debet). */
+    val incoming: Boolean,
     val selected: Boolean,
     val categoryId: Long? = null,
     /** "rule", "history", "jev", "manual" or null while undecided. */
@@ -33,8 +37,6 @@ data class StatementImportState(
     /** 0..1 while Jev is working through the rows. */
     val progress: Float? = null,
     val rows: List<ImportRow> = emptyList(),
-    val creditsCount: Int = 0,
-    val creditsTotal: Long = 0,
     val error: String? = null,
     val notice: String? = null,
     val needsPassword: Boolean = false,
@@ -100,49 +102,48 @@ class StatementImporter(
 
     private suspend fun process(text: String) {
         val parsed = StatementParser.parse(text)
-        if (parsed.debits.isEmpty()) {
+        if (parsed.rows.isEmpty()) {
             state.update {
                 it.copy(
                     busy = null, rawText = text,
-                    error = "No outgoing transactions found in this file. If it is a rekening koran, " +
-                        "tap \"Show extracted text\" and send it to whoever maintains the app so the parser can learn the format.",
+                    error = "No transactions found in this file. If it is a rekening koran, tap " +
+                        "\"Show extracted text\" and send a few lines to whoever maintains the app so the parser can learn the format.",
                 )
             }
             return
         }
 
         val stamp = SimpleDateFormat("yyyyMMddHHmm", Locale.US)
-        val rows = parsed.debits.mapIndexed { i, r ->
-            val ref = "stmt:${stamp.format(Date(r.timestamp))}:${r.amount}:${r.description.hashCode()}"
+        val rows = parsed.rows.mapIndexed { i, r ->
+            val incoming = !r.isDebit
+            val ref = "stmt:${if (incoming) "in" else "out"}:${stamp.format(Date(r.timestamp))}:${r.amount}:${r.description.hashCode()}"
+            val types = if (incoming) listOf(TxnType.INCOME) else TxnType.OUTGOING
             val duplicate = repo.txns.findByReference(ref)?.let { "Already imported" }
-                ?: repo.txns.findSimilar(r.amount, r.timestamp - DAY, r.timestamp + DAY)?.let { t ->
+                ?: repo.txns.findSimilar(r.amount, types, r.timestamp - DAY, r.timestamp + DAY)?.let { t ->
                     "Probably already recorded (${t.source}: ${t.counterparty.ifBlank { "same amount" }})"
                 }
             ImportRow(
                 key = "t${i + 1}", timestamp = r.timestamp, description = r.description,
-                counterparty = StatementParser.guessCounterparty(r.description), amount = r.amount,
-                selected = duplicate == null, duplicateNote = duplicate, reference = ref,
+                counterparty = StatementParser.guessCounterparty(r.description, incoming), amount = r.amount,
+                incoming = incoming, selected = duplicate == null, duplicateNote = duplicate, reference = ref,
             )
         }
-        state.update {
-            it.copy(
-                busy = "Choosing categories…", rows = rows, rawText = text,
-                creditsCount = parsed.credits.size, creditsTotal = parsed.credits.sumOf { c -> c.amount },
-            )
-        }
+        state.update { it.copy(busy = "Choosing categories…", rows = rows, rawText = text) }
         categorise()
     }
 
     private suspend fun categorise() {
-        // 1) Fixed rules: cash withdrawals, bank fees, e-wallet top-ups.
+        // 1) Fixed rules: cash, fees, top-ups, investment platforms, salary, interest.
         val ruled = state.value.rows.map { row ->
-            val rule = StatementRules.match(row.description) ?: return@map row
-            row.copy(categoryId = repo.ensureCategory(rule.name, rule.emoji, rule.hint), categorisedBy = "rule")
+            val rule = (if (row.incoming) StatementRules.matchIncoming(row.description) else StatementRules.matchOutgoing(row.description))
+                ?: return@map row
+            row.copy(categoryId = repo.ensureCategory(rule.name, rule.icon, rule.hint, rule.kind), categorisedBy = "rule")
         }
-        // 2) Paid this person before? Reuse that category.
+        // 2) Same person or merchant as before, in the same direction? Reuse that category.
         val withHistory = ruled.map { row ->
             if (row.categoryId != null) return@map row
-            val known = repo.txns.lastCategoryFor(row.counterparty)
+            val types = if (row.incoming) listOf(TxnType.INCOME) else TxnType.OUTGOING
+            val known = repo.txns.lastCategoryFor(row.counterparty, types)
             if (known != null) row.copy(categoryId = known, categorisedBy = "history") else row
         }
         state.update { it.copy(rows = withHistory) }
@@ -156,17 +157,21 @@ class StatementImporter(
             }
             return
         }
-        val categories = repo.categories.getAll()
+        val outCats = repo.categories.getByKinds(TxnType.OUTGOING)
+        val inCats = repo.categories.getByKinds(listOf(TxnType.INCOME))
         val dateFmt = SimpleDateFormat("EEE d MMM yyyy HH:mm", Locale.forLanguageTag("id-ID"))
+        fun items(rows: List<ImportRow>) = rows.map {
+            JevCategorizer.BatchItem(it.key, it.description, it.amount, it.counterparty, dateFmt.format(Date(it.timestamp)))
+        }
+        val (inRows, outRows) = todo.partition { it.incoming }
         state.update { it.copy(progress = 0f) }
         runCatching {
-            jev.categorizeBatch(
-                categories,
-                todo.map {
-                    JevCategorizer.BatchItem(it.key, it.description, it.amount, it.counterparty, dateFmt.format(Date(it.timestamp)))
-                },
-                onProgress = { done -> state.update { s -> s.copy(progress = done.toFloat() / todo.size) } },
-            )
+            val progress = { done: Int, offset: Int -> state.update { s -> s.copy(progress = (offset + done).toFloat() / todo.size) } }
+            val out = if (outRows.isEmpty() || outCats.isEmpty()) emptyMap()
+            else jev.categorizeBatch(outCats, items(outRows), incoming = false, onProgress = { progress(it, 0) })
+            val inc = if (inRows.isEmpty() || inCats.isEmpty()) emptyMap()
+            else jev.categorizeBatch(inCats, items(inRows), incoming = true, onProgress = { progress(it, outRows.size) })
+            out + inc
         }.onSuccess { decisions ->
             state.update { s ->
                 s.copy(
@@ -187,8 +192,14 @@ class StatementImporter(
         s.copy(rows = s.rows.map { if (it.key == key) it.copy(selected = !it.selected) else it })
     }
 
-    fun setAll(selected: Boolean) = state.update { s ->
-        s.copy(rows = s.rows.map { if (it.duplicateNote == null || !selected) it.copy(selected = selected) else it })
+    /** Tick/untick everything, or only money in / money out when [incoming] is set. */
+    fun setAll(selected: Boolean, incoming: Boolean? = null) = state.update { s ->
+        s.copy(
+            rows = s.rows.map {
+                val inScope = incoming == null || it.incoming == incoming
+                if (inScope && (it.duplicateNote == null || !selected)) it.copy(selected = selected) else it
+            },
+        )
     }
 
     fun setCategory(key: String, categoryId: Long) = state.update { s ->
@@ -196,14 +207,20 @@ class StatementImporter(
     }
 
     /** Saves the ticked rows. Returns how many were saved. */
-    suspend fun confirm(): Int {
+    suspend fun confirm(categories: List<Category>): Int {
+        val kindOf = categories.associate { it.id to it.kind }
         val chosen = state.value.rows.filter { it.selected }
         repo.saveAll(
             chosen.map {
+                val type = when {
+                    it.incoming -> TxnType.INCOME
+                    kindOf[it.categoryId] == TxnType.INVEST -> TxnType.INVEST
+                    else -> TxnType.EXPENSE
+                }
                 Txn(
                     amount = it.amount, categoryId = it.categoryId, counterparty = it.counterparty,
                     note = it.description, timestamp = it.timestamp, source = SOURCE,
-                    reference = it.reference, categorisedBy = it.categorisedBy ?: "manual",
+                    reference = it.reference, categorisedBy = it.categorisedBy ?: "manual", type = type,
                 )
             },
         )

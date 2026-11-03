@@ -15,6 +15,8 @@ data class ParsedReceipt(
     /** "Transfer", "QRIS", "Top Up", "Pembayaran" or null. */
     val kind: String?,
     val rawText: String,
+    /** True when the receipt is for money received rather than sent. */
+    val incoming: Boolean = false,
 )
 
 /** A line of OCR text with its position on the screenshot (pixels). */
@@ -55,13 +57,15 @@ object ReceiptParser {
         val lines = text.lines().map { it.trim().replace(Regex("\\s+"), " ") }.filter { it.isNotEmpty() }
         return ParsedReceipt(
             amount = findAmount(lines),
-            counterparty = findCounterparty(lines),
+            counterparty = if (detectIncoming(text)) findCounterparty(lines, SENDER_LABELS) ?: findCounterparty(lines)
+            else findCounterparty(lines),
             timestamp = findTimestamp(lines, defaultZone),
             reference = findReference(lines),
             note = findNote(lines),
             source = detectSource(lines),
             kind = detectKind(text),
             rawText = text,
+            incoming = detectIncoming(text),
         )
     }
 
@@ -127,7 +131,7 @@ object ReceiptParser {
         AMOUNT_LABELS + COUNTERPARTY_LABELS + NOTE_LABELS + REFERENCE_LABELS + listOf(
             "sumber dana", "rekening sumber", "biaya admin", "biaya", "status", "berhasil",
             "transaksi berhasil", "jenis transaksi", "waktu", "tanggal", "metode pembayaran",
-            "bank", "no. rekening", "nomor rekening",
+            "bank", "no. rekening", "nomor rekening", "nama pengirim", "pengirim", "dari",
         )
         ).toSet()
 
@@ -160,8 +164,10 @@ object ReceiptParser {
         return true
     }
 
-    private fun findCounterparty(lines: List<String>): String? {
-        for (label in COUNTERPARTY_LABELS) {
+    private val SENDER_LABELS = listOf("nama pengirim", "pengirim", "dari", "from")
+
+    private fun findCounterparty(lines: List<String>, labels: List<String> = COUNTERPARTY_LABELS): String? {
+        for (label in labels) {
             for ((i, line) in lines.withIndex()) {
                 val inline = matchLabel(line, label) ?: continue
                 if (inline.isNotEmpty() && looksLikeName(inline)) return cleanName(inline)
@@ -307,6 +313,13 @@ object ReceiptParser {
         if (Regex("\\b(bank )?bri\\b").containsMatchIn(all)) return "BRImo"
         return "Receipt"
     }
+
+    private val INCOMING = Regex(
+        "(?i)\\b(dana masuk|uang masuk|transfer masuk|saldo masuk|kamu menerima|anda menerima|menerima dana|" +
+            "diterima dari|terima uang|you received|money received|incoming transfer)\\b",
+    )
+
+    private fun detectIncoming(text: String): Boolean = INCOMING.containsMatchIn(text)
 
     private fun detectKind(text: String): String? {
         val t = text.lowercase()

@@ -90,6 +90,14 @@ class ReceiptParserTest {
         assertEquals(13_000L, r.amount)
     }
 
+    @Test fun incomingReceipt() {
+        val r = ReceiptParser.parse("Dana Masuk\nKamu menerima Rp250.000\nDari ANI LESTARI\n01 Nov 2026 10:00 WITA", bali)
+        assertEquals(true, r.incoming)
+        assertEquals(250_000L, r.amount)
+        assertEquals("ANI LESTARI", r.counterparty)
+        assertEquals(false, ReceiptParser.parse("Transaksi Berhasil\nTujuan\nBUDI\nTotal Rp10.000", bali).incoming)
+    }
+
     @Test fun rupiahFormats() {
         assertEquals(1_250_000L, ReceiptParser.toRupiah("1.250.000,00"))
         assertEquals(50_000L, ReceiptParser.toRupiah("50,000.00"))

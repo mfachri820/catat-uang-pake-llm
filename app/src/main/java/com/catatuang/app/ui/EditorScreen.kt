@@ -39,7 +39,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import com.catatuang.app.data.TxnType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -66,10 +72,11 @@ fun EditorScreen(vm: MainViewModel) {
     var showRaw by remember { mutableStateOf(false) }
 
     val title = when {
-        e.id != 0L -> "Edit expense"
+        e.id != 0L -> "Edit"
         e.fromReceipt -> "Check receipt"
-        else -> "New expense"
+        else -> "New entry"
     }
+    val shownCategories = categories.filter { it.kind == e.type }
 
     Scaffold(
         topBar = {
@@ -98,6 +105,16 @@ fun EditorScreen(vm: MainViewModel) {
             e.duplicateWarning?.let { Notice(it, warning = true) }
             e.error?.let { Notice(it, warning = true) }
 
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                val types = listOf(TxnType.EXPENSE to "Spending", TxnType.INCOME to "Income", TxnType.INVEST to "Investing")
+                types.forEachIndexed { i, (type, label) ->
+                    SegmentedButton(
+                        selected = e.type == type, onClick = { vm.setType(type) },
+                        shape = SegmentedButtonDefaults.itemShape(i, types.size),
+                    ) { Text(label) }
+                }
+            }
+
             OutlinedTextField(
                 value = e.amountText,
                 onValueChange = { v -> vm.updateEditor { it.copy(amountText = v.filter(Char::isDigit).take(13), error = null) } },
@@ -112,8 +129,8 @@ fun EditorScreen(vm: MainViewModel) {
             OutlinedTextField(
                 value = e.counterparty,
                 onValueChange = { v -> vm.updateEditor { it.copy(counterparty = v) } },
-                label = { Text("Paid to") },
-                placeholder = { Text("Recipient or merchant") },
+                label = { Text(if (e.type == TxnType.INCOME) "Received from" else "Paid to") },
+                placeholder = { Text(if (e.type == TxnType.INCOME) "Sender or employer" else "Recipient, merchant or platform") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -148,11 +165,14 @@ fun EditorScreen(vm: MainViewModel) {
                 }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                categories.forEach { c ->
+                shownCategories.forEach { c ->
                     FilterChip(
                         selected = e.categoryId == c.id,
                         onClick = { vm.pickCategory(c.id) },
-                        label = { Text("${c.emoji} ${c.name}") },
+                        label = { Text(c.name) },
+                        leadingIcon = {
+                            Icon(painterResource(CategoryIcons.res(c.icon)), null, modifier = Modifier.size(18.dp))
+                        },
                     )
                 }
             }

@@ -46,13 +46,18 @@ class JevCategorizer(private val settings: Settings) {
         kind: String?,
         source: String?,
         receiptText: String?,
+        incoming: Boolean = false,
     ): CategoryDecision = withContext(Dispatchers.IO) {
         if (!isConfigured) throw JevException("Add your OpenRouter API key in Settings first.")
         require(categories.isNotEmpty()) { "No categories to choose from" }
 
         val state = JSONObject().apply {
-            put("task", "A personal expense from an Indonesian banking or e-wallet app. Decide which spending category it belongs to.")
-            counterparty?.let { put("paid_to", it) }
+            put(
+                "task",
+                if (incoming) "Money received, from an Indonesian banking or e-wallet app. Decide what kind of income it is."
+                else "Money paid out from an Indonesian banking or e-wallet app: spending, or putting money into an investment. Decide its category.",
+            )
+            counterparty?.let { put(if (incoming) "received_from" else "paid_to", it) }
             amount?.let { put("amount_idr", it) }
             note?.let { put("note_written_by_user", it) }
             kind?.let { put("transaction_type", it) }
@@ -73,7 +78,7 @@ class JevCategorizer(private val settings: Settings) {
                     "category",
                     JSONObject()
                         .put("type", "choice")
-                        .put("instructions", "Which spending category should this payment be recorded under?")
+                        .put("instructions", "Which category should this transaction be recorded under?")
                         .put("criteria", criteria),
                 ),
             )
@@ -101,6 +106,7 @@ class JevCategorizer(private val settings: Settings) {
     suspend fun categorizeBatch(
         categories: List<Category>,
         items: List<BatchItem>,
+        incoming: Boolean = false,
         chunk: Int = 8,
         onProgress: (Int) -> Unit = {},
     ): Map<String, CategoryDecision> = withContext(Dispatchers.IO) {
@@ -117,24 +123,18 @@ class JevCategorizer(private val settings: Settings) {
                     put("bank_description", item.description)
                     put("amount_idr", item.amount)
                     put("date", item.date)
-                    item.counterparty?.let { put("probably_paid_to", it) }
+                    item.counterparty?.let { put(if (incoming) "probably_from" else "probably_paid_to", it) }
                 })
                 questions.put(
                     item.key,
                     JSONObject()
                         .put("type", "choice")
-                        .put("instructions", "Which spending category fits transaction ${item.key} in transactions.${item.key}?")
+                        .put("instructions", "Which category fits transaction ${item.key} in transactions.${item.key}?")
                         .put("criteria", criteria),
                 )
             }
             val state = JSONObject()
-                .put(
-                    "task",
-                    "Money-out lines from an Indonesian bank statement (rekening koran), e.g. BRI. " +
-                        "Descriptions use bank codes: NBMB/ESB/BI-FAST = transfer to the person after 'TO'; " +
-                        "QRIS = paying a shop by QR; BRIVA = virtual account bill (e-commerce, PLN, BPJS, school). " +
-                        "Decide the spending category of each transaction.",
-                )
+                .put("task", if (incoming) INCOMING_TASK else OUTGOING_TASK)
                 .put("transactions", txns)
             val json = post(JSONObject().put("model", settings.jevModel).put("state", state).put("questions", questions))
             val answers = json.getJSONObject("answers")
@@ -179,6 +179,16 @@ class JevCategorizer(private val settings: Settings) {
     }
 
     companion object {
+        private const val OUTGOING_TASK =
+            "Money-out lines from an Indonesian bank statement (rekening koran), e.g. BRI. " +
+                "Descriptions use bank codes: NBMB/ESB/BI-FAST = transfer to the person after 'TO'; " +
+                "QRIS = paying a shop by QR; BRIVA = virtual account bill (e-commerce, PLN, BPJS, school, investment apps). " +
+                "Some lines are investments (money into stocks, mutual funds, gold, crypto, deposits), not spending. " +
+                "Decide the category of each transaction."
+        private const val INCOMING_TASK =
+            "Money-in lines from an Indonesian bank statement (rekening koran), e.g. BRI. " +
+                "Descriptions use bank codes: NBMB/ESB/BI-FAST = transfer from the person named; 'GAJI'/'PAYROLL' = salary. " +
+                "Decide what kind of income each transaction is."
         const val ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
     }
 }

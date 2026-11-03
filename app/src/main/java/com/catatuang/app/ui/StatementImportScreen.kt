@@ -15,6 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.res.painterResource
+import com.catatuang.app.data.TxnType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -79,7 +83,7 @@ fun StatementImportScreen(vm: MainViewModel) {
                         enabled = chosen.isNotEmpty() && s.busy == null,
                         modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp).height(52.dp),
                     ) {
-                        Text("Import ${chosen.size} expenses · ${rupiah(chosen.sumOf { it.amount })}", fontWeight = FontWeight.SemiBold)
+                        Text("Import ${chosen.size} transactions", fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -113,28 +117,33 @@ fun StatementImportScreen(vm: MainViewModel) {
 
             if (s.rows.isNotEmpty()) {
                 item {
+                    val outs = s.rows.filter { !it.incoming }
+                    val ins = s.rows.filter { it.incoming }
+                    val dark = isSystemInDarkTheme()
                     Column {
-                        Text(
-                            "${s.rows.size} outgoing transactions found",
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        if (s.creditsCount > 0) {
+                        Text("${s.rows.size} transactions found", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Text(
-                                "${s.creditsCount} incoming (${rupiah(s.creditsTotal)}) left out — this app tracks spending.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                "Out ${rupiah(outs.filter { it.selected }.sumOf { it.amount })} (${outs.count { it.selected }}/${outs.size})",
+                                style = MaterialTheme.typography.bodyMedium, color = KindColors.accent(TxnType.EXPENSE, dark),
+                            )
+                            Text(
+                                "In +${rupiah(ins.filter { it.selected }.sumOf { it.amount })} (${ins.count { it.selected }}/${ins.size})",
+                                style = MaterialTheme.typography.bodyMedium, color = KindColors.accent(TxnType.INCOME, dark),
                             )
                         }
                         val dupes = s.rows.count { it.duplicateNote != null }
                         if (dupes > 0) {
                             Text(
-                                "$dupes look like payments you already recorded from receipts, so they're unticked.",
+                                "$dupes look like ones you already recorded, so they're unticked.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Row {
                             TextButton(onClick = { vm.statement.setAll(true) }) { Text("Tick all") }
+                            TextButton(onClick = { vm.statement.setAll(false, incoming = true) }) { Text("Skip money in") }
                             TextButton(onClick = { vm.statement.setAll(false) }) { Text("Untick all") }
                         }
                     }
@@ -143,7 +152,9 @@ fun StatementImportScreen(vm: MainViewModel) {
                     StatementRowItem(
                         row = row,
                         category = row.categoryId?.let(byId::get),
-                        categories = categories,
+                        categories = categories.filter { c ->
+                            if (row.incoming) c.kind == TxnType.INCOME else c.kind != TxnType.INCOME
+                        },
                         onToggle = { vm.statement.toggle(row.key) },
                         onPick = { vm.statement.setCategory(row.key, it) },
                     )
@@ -153,10 +164,12 @@ fun StatementImportScreen(vm: MainViewModel) {
 
             s.rawText?.let { raw ->
                 item {
+                  Column {
                     TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide extracted text" else "Show extracted text") }
                     if (showRaw) {
                         Text(raw.take(20_000), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                     }
+                  }
                 }
             }
         }
@@ -181,7 +194,13 @@ private fun StatementRowItem(
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(rupiah(row.amount), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                Text(
+                    (if (row.incoming) "+" else "") + rupiah(row.amount),
+                    style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                    color = if (row.incoming) KindColors.accent(TxnType.INCOME, isSystemInDarkTheme())
+                    else if (category?.kind == TxnType.INVEST) KindColors.accent(TxnType.INVEST, isSystemInDarkTheme())
+                    else MaterialTheme.colorScheme.onSurface,
+                )
             }
             Text(
                 formatDateTime(row.timestamp) + " · " + row.description,
@@ -195,15 +214,19 @@ private fun StatementRowItem(
                 AssistChip(
                     onClick = { menu = true },
                     label = {
-                        Text(
-                            (category?.let { "${it.emoji} ${it.name}" } ?: "Choose category") + badge(row),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
+                        Text((category?.name ?: "Choose category") + badge(row), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    leadingIcon = {
+                        Icon(painterResource(CategoryIcons.res(category?.icon)), null, modifier = Modifier.size(18.dp))
                     },
                 )
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     categories.forEach { c ->
-                        DropdownMenuItem(text = { Text("${c.emoji} ${c.name}") }, onClick = { onPick(c.id); menu = false })
+                        DropdownMenuItem(
+                            text = { Text(c.name) },
+                            leadingIcon = { Icon(painterResource(CategoryIcons.res(c.icon)), null, modifier = Modifier.size(20.dp)) },
+                            onClick = { onPick(c.id); menu = false },
+                        )
                     }
                 }
             }

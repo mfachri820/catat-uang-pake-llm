@@ -203,11 +203,19 @@ object StatementParser {
         "QR", "QRIS", "PAYMENT", "DEBIT", "KARTU", "POS", "EDC", "IDR",
     )
 
-    /** Best guess at who got paid, from a statement description. */
-    fun guessCounterparty(description: String): String {
+    /**
+     * Best guess at the other party from a statement description: who got paid for money out,
+     * who sent it for money in ("NBMB ANI TO FACHRI" is from Ani).
+     */
+    fun guessCounterparty(description: String, incoming: Boolean = false): String {
         val upper = description.uppercase()
-        val afterTo = Regex("\\b(?:TO|KE)\\s+(.+)$").find(upper)?.groupValues?.get(1)
-        val base = afterTo ?: upper
+        val base = if (incoming) {
+            Regex("\\bDARI\\s+(.+)$").find(upper)?.groupValues?.get(1)
+                ?: Regex("^(.+?)\\s+TO\\s+").find(upper)?.groupValues?.get(1)
+                ?: upper
+        } else {
+            Regex("\\b(?:TO|KE)\\s+(.+)$").find(upper)?.groupValues?.get(1) ?: upper
+        }
         val words = base.split(' ', '/', ':', '-', '|')
             .filter { w -> w.isNotBlank() && w !in CODES && w.count { it.isDigit() } < 3 && w.any { it.isLetter() } }
             .take(4)

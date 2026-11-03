@@ -98,5 +98,7 @@ class StatementParserTest {
     @Test fun counterpartyGuess() {
         assertEquals("Budi Santoso", StatementParser.guessCounterparty("NBMB MUHAMMAD FACHRI TO BUDI SANTOSO"))
         assertEquals("Kopi Kenangan Sunset Denpasar", StatementParser.guessCounterparty("QRIS KOPI KENANGAN SUNSET DENPASAR ID"))
+        assertEquals("Ani Lestari", StatementParser.guessCounterparty("NBMB ANI LESTARI TO MUHAMMAD FACHRI", incoming = true))
+        assertEquals("Pt Maju Jaya Gaji", StatementParser.guessCounterparty("TRANSFER DARI PT MAJU JAYA GAJI", incoming = true))
     }
 }
